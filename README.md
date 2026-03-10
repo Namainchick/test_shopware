@@ -1,18 +1,20 @@
 # Test Shop — Shopware 6
 
-Shopware 6 Test-Shop mit Docker (dockware) und CI/CD über GitHub Actions.
+Shopware 6 Shop mit Docker (dockware) und CI/CD über GitHub Actions.
+Zwei Umgebungen: **DEV-Server** (Testen) und **PROD-Server** (Live).
 
 ---
 
 ## Übersicht
 
 ```
-Entwickler (lokal)         GitHub                    Server (Produktion/Staging)
-──────────────────         ──────                    ──────────────────────────
-Code ändern            →   Push auf main         →   GitHub Actions baut Image
-                           │                         │
-                           └─ ghcr.io/namainchick/   └─ Server zieht neues Image
-                              test_shopware:latest       und startet Container neu
+Entwickler (lokal)         GitHub                DEV-Server            PROD-Server
+──────────────────         ──────                ──────────            ───────────
+Code ändern            →   Push auf dev      →   Image :dev wird
+Lokal testen               │                     automatisch deployed
+                           │
+                           PR: dev → main    →                        Image :latest wird
+                           + Code-Review                              automatisch deployed
 ```
 
 ---
@@ -32,7 +34,10 @@ Code ändern            →   Push auf main         →   GitHub Actions baut Im
 git clone https://github.com/Namainchick/test_shopware.git
 cd test_shopware
 
-# 2. Shopware-Quellcode aus Docker-Image extrahieren + Shop starten
+# 2. Auf dev-Branch wechseln
+git checkout dev
+
+# 3. Shopware-Quellcode aus Docker-Image extrahieren + Shop starten
 ./init.sh
 ```
 
@@ -92,21 +97,32 @@ src/custom/static-plugins/   ← statische Plugins
 ### Git-Workflow
 
 ```bash
-# 1. Neuen Branch erstellen
+# 1. Sicherstellen, dass du auf dem dev-Branch bist
+git checkout dev
+git pull origin dev
+
+# 2. Feature-Branch erstellen
 git checkout -b feature/mein-neues-feature
 
-# 2. Code ändern in src/custom/plugins/...
+# 3. Code ändern in src/custom/plugins/...
 
-# 3. Änderungen committen
+# 4. Änderungen committen
 git add src/custom/plugins/MeinPlugin/
 git commit -m "Add: Mein neues Feature"
 
-# 4. Branch pushen
+# 5. Branch pushen
 git push origin feature/mein-neues-feature
 
-# 5. Pull Request auf GitHub erstellen
+# 6. Pull Request auf GitHub erstellen: feature → dev
 #    → Code-Review durch anderes Teammitglied
+#    → Merge in dev
+#    → Automatisch: Image wird gebaut + auf DEV-Server deployed
+
+# 7. Auf DEV-Server testen
+
+# 8. Wenn alles passt: Pull Request dev → main
 #    → Merge in main
+#    → Automatisch: Image wird gebaut + auf PROD-Server deployed
 ```
 
 ### Was wird getrackt, was nicht?
@@ -125,83 +141,128 @@ git push origin feature/mein-neues-feature
 
 ---
 
-## 3. Was passiert bei einem Push auf main? (CI/CD)
+## 3. CI/CD — Was passiert automatisch?
 
-Sobald Code auf `main` (oder `master`) gemergt wird, startet automatisch die **GitHub Actions Pipeline**:
+### Push auf `dev`-Branch
 
 ```
-Push auf main
+Push/Merge auf dev
     │
     ▼
-GitHub Actions startet (.github/workflows/build.yml)
+GitHub Actions startet
     │
-    ├─ 1. Checkout: Code wird ausgecheckt
-    ├─ 2. Login: Einloggen bei ghcr.io (automatisch via GITHUB_TOKEN)
-    ├─ 3. Build: Docker-Image wird gebaut (Dockerfile)
-    │      → Nimmt dockware/dev:latest als Basis
-    │      → Kopiert eure Custom-Plugins hinein
-    └─ 4. Push: Image wird gepusht nach:
-           ghcr.io/namainchick/test_shopware:latest
+    ├─ 1. Code wird ausgecheckt
+    ├─ 2. Login bei ghcr.io
+    ├─ 3. Docker-Image wird gebaut
+    │      → dockware/dev:latest als Basis
+    │      → Custom-Plugins werden hineinkopiert
+    └─ 4. Image wird gepusht als:
+           ghcr.io/namainchick/test_shopware:dev
+           │
+           ▼
+    DEV-Server: Watchtower erkennt neues Image
+           → Container wird automatisch neu gestartet
 ```
 
-**Den Build-Status** seht ihr im GitHub-Repo unter dem Tab **"Actions"**.
+### Merge auf `main`-Branch
+
+```
+Merge dev → main
+    │
+    ▼
+GitHub Actions startet
+    │
+    └─ Image wird gepusht als:
+           ghcr.io/namainchick/test_shopware:latest
+           │
+           ▼
+    PROD-Server: Watchtower erkennt neues Image
+           → Container wird automatisch neu gestartet
+```
+
+**Build-Status:** GitHub-Repo → Tab **"Actions"**
 
 ---
 
-## 4. Server-Deployment (Staging/Produktion)
+## 4. Server-Setup (einmalig, für DEV- und PROD-Server)
 
-### Erstmaliges Setup auf dem Server
+### Docker installieren (Ubuntu/Debian)
 
 ```bash
-# 1. Repo klonen (nur für docker-compose.prod.yml)
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# Ausloggen und wieder einloggen
+```
+
+### Shop einrichten
+
+```bash
+# 1. Repo klonen
 git clone https://github.com/Namainchick/test_shopware.git
 cd test_shopware
 
 # 2. Bei GitHub Container Registry einloggen
-#    (Personal Access Token mit "read:packages" Berechtigung nötig)
+#    GitHub → Settings → Developer Settings → Personal Access Tokens
+#    → Token mit "read:packages" Berechtigung erstellen
 echo "DEIN_GITHUB_TOKEN" | docker login ghcr.io -u DEIN_GITHUB_USERNAME --password-stdin
 
-# 3. Shop starten
+# 3. docker-compose.prod.yml anpassen:
+#    DEV-Server:  image: ghcr.io/namainchick/test_shopware:dev
+#    PROD-Server: image: ghcr.io/namainchick/test_shopware:latest
+
+# 4. Shop starten
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-### Update auf dem Server (nach neuem Push auf main)
+### Watchtower einrichten (automatische Updates)
+
+Watchtower prüft alle 5 Minuten ob ein neues Image verfügbar ist und startet den Container automatisch neu.
 
 ```bash
-# Neues Image ziehen und Container neu starten
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker run -d \
+  --name watchtower \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -e WATCHTOWER_CLEANUP=true \
+  -e WATCHTOWER_POLL_INTERVAL=300 \
+  containrrr/watchtower
 ```
-
-### Automatisches Update (optional)
-
-Für automatische Updates kann [Watchtower](https://containrrr.dev/watchtower/) eingesetzt werden. Watchtower prüft regelmäßig ob ein neues Image verfügbar ist und startet den Container automatisch neu.
 
 ---
 
 ## 5. Zusammenfassung: Wer macht was, wann?
 
-### Neuer Entwickler im Team:
+### Neuer Entwickler im Team
 1. Repo klonen
-2. `./init.sh` ausführen
-3. Loslegen
+2. `git checkout dev`
+3. `./init.sh` ausführen
+4. Loslegen
 
-### Entwickler (tägliche Arbeit):
-1. `docker compose up -d` → Shop starten
+### Entwickler (tägliche Arbeit)
+1. `docker compose up -d` → Shop lokal starten
 2. Code in `src/custom/plugins/` ändern
 3. Lokal testen
-4. Branch erstellen, committen, pushen
-5. Pull Request erstellen
-6. Code-Review abwarten
-7. In `main` mergen → **CI/CD baut automatisch neues Image**
+4. Feature-Branch erstellen, committen, pushen
+5. PR erstellen: `feature` → `dev` + Code-Review
+6. Merge → **automatisch auf DEV-Server deployed**
+7. Auf DEV-Server testen
+8. PR erstellen: `dev` → `main` + Code-Review
+9. Merge → **automatisch auf PROD-Server deployed**
 
-### Server-Admin (Deployment):
-1. Einmalig: Server einrichten (siehe Abschnitt 4)
-2. Nach jedem Merge in main:
-   ```bash
-   docker compose -f docker-compose.prod.yml pull
-   docker compose -f docker-compose.prod.yml up -d
-   ```
+### Server-Admin (einmalig)
+1. Docker installieren
+2. Shop + Watchtower einrichten
+3. Danach läuft alles automatisch
+
+---
+
+## 6. Branches
+
+| Branch | Zweck | Deployed auf |
+|--------|-------|-------------|
+| `main` | Produktionscode | PROD-Server |
+| `dev` | Testcode | DEV-Server |
+| `feature/*` | Neue Features | Nur lokal |
 
 ---
 
@@ -211,15 +272,27 @@ Für automatische Updates kann [Watchtower](https://containrrr.dev/watchtower/) 
 test_shopware/
 ├── .github/
 │   └── workflows/
-│       └── build.yml           ← CI/CD Pipeline
+│       └── build.yml           ← CI/CD Pipeline (dev + main)
 ├── src/
 │   └── custom/
 │       ├── plugins/            ← Eure Plugins (getrackt)
 │       └── static-plugins/     ← Statische Plugins (getrackt)
 ├── .gitignore
 ├── docker-compose.yml          ← Lokale Entwicklung
-├── docker-compose.prod.yml     ← Server/Produktion
+├── docker-compose.prod.yml     ← Server (DEV + PROD)
 ├── Dockerfile                  ← Baut das eigene Image
 ├── init.sh                     ← Setup für neue Entwickler
 └── README.md                   ← Diese Datei
 ```
+
+---
+
+## Migration vom alten Setup
+
+Falls ihr vom alten Setup (Code direkt auf Server) migriert:
+
+1. **Custom-Code sichern:** Plugins + Themes vom aktuellen DEV-Server per SCP/SFTP herunterladen
+2. **In Git einfügen:** Dateien nach `src/custom/plugins/` und `src/custom/static-plugins/` kopieren
+3. **Committen + Pushen:** `git add . && git commit -m "Import existing plugins" && git push`
+4. **Server umstellen:** Docker installieren, alten Stack stoppen, Docker-Container starten (siehe Abschnitt 4)
+5. **Testen:** Shop auf DEV-Server prüfen, dann auf PROD-Server umstellen
