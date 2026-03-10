@@ -9,7 +9,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-push:
@@ -32,6 +31,8 @@ jobs:
       - name: Determine image tag
         id: tag
         run: |
+          IMAGE_NAME=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "image=${IMAGE_NAME}" >> $GITHUB_OUTPUT
           if [[ "${{ github.ref_name }}" == "dev" ]]; then
             echo "tag=dev" >> $GITHUB_OUTPUT
           else
@@ -44,5 +45,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ steps.tag.outputs.image }}:${{ steps.tag.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ steps.tag.outputs.image }}:${{ github.sha }}
