@@ -1,6 +1,14 @@
 # Docker
 docker-compose.override.yml
 
+# Shopware source (pulled from container on first start)
+src/*
+# Track only custom code
+!src/custom/
+src/custom/*
+!src/custom/plugins/
+!src/custom/static-plugins/
+
 # IDE
 .idea/
 .vscode/

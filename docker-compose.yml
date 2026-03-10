@@ -12,14 +12,11 @@ services:
       - "8888:8888"
       - "22:22"
     volumes:
-      - shop_data:/var/www/html
+      - ./src:/var/www/html
     environment:
       - XDEBUG_ENABLED=0
     networks:
       - shopware
-
-volumes:
-  shop_data:
 
 networks:
   shopware:
