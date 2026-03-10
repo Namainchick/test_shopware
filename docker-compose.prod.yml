@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  shopware:
+    image: ghcr.io/namainchick/test_shopware:latest
+    container_name: test_shop
+    ports:
+      - "80:80"
+      - "443:443"
+      - "1080:1080"
+      - "9090:9090"
+    volumes:
+      - shop_data:/var/www/html
+    environment:
+      - XDEBUG_ENABLED=0
+    restart: unless-stopped
+    networks:
+      - shopware
+
+volumes:
+  shop_data:
+
+networks:
+  shopware:
